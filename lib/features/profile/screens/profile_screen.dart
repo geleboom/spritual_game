@@ -6,7 +6,6 @@ import '../models/user_profile.dart';
 import '../../progress/services/progress_service.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../verses/services/dashboard_service.dart';
-import '../../verses/models/verse.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});

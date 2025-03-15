@@ -18,7 +18,7 @@ class VerseCategory {
       id: 'salvation',
       name: 'Salvation',
       nameAm: 'ድነት',
-      icon: '✝️ 🕊️ 🌟',
+      icon: '😇 🕊️ 🌟',
       verseIds: [1, 2, 3],
     ),
     VerseCategory(
@@ -32,7 +32,7 @@ class VerseCategory {
       id: 'contentment',
       name: 'Contentment',
       nameAm: 'እርካታ',
-      icon: '😌 ☮️ 🙏',
+      icon: '😊 ☮️ 🙏',
       verseIds: [7, 8, 9],
     ),
     VerseCategory(
