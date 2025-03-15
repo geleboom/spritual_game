@@ -9,13 +9,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:spiritual_game/main.dart';
-import 'package:spiritual_game/features/verses/screens/verse_list_screen.dart';
+import 'package:spiritual_game/features/verses/screens/Dashboard.dart';
 
 void main() {
   group('App Tests', () {
     testWidgets('App should start with welcome pages',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MyApp(hasSeenWelcome: false));
+      await tester.pumpWidget(const MyApp());
 
       // Verify we're on the first welcome page
       expect(find.text('እንኳን ደህና መጡ'), findsOneWidget);
@@ -28,7 +28,7 @@ void main() {
         (WidgetTester tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: VerseListScreen(),
+          home: DashboardScreen(),
         ),
       );
 
@@ -49,7 +49,7 @@ void main() {
     testWidgets('Search functionality works', (WidgetTester tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: VerseListScreen(),
+          home: DashboardScreen(),
         ),
       );
 
@@ -64,7 +64,7 @@ void main() {
     testWidgets('Verse card tap shows detail', (WidgetTester tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: VerseListScreen(),
+          home: DashboardScreen(),
         ),
       );
 

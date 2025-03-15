@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Verses collection rules
+    match /verses/{verseId} {
+      allow read: if true;  // Public read access
+      allow write: if false; // No client-side writes
+    }
+    
+    // Categories collection rules
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // User progress rules (if implementing)
+    match /users/{userId}/progress/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

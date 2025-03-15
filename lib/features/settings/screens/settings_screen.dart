@@ -7,9 +7,9 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    final settings = Provider.of<SettingsProvider>(context);
+    final translations = SettingsProvider.translations[settings.language] ?? 
+        SettingsProvider.translations['am']!;
 
     return Scaffold(
       appBar: AppBar(
@@ -87,7 +87,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  void _showLanguageDialog(BuildContext context, AppSettings settings,
+  void _showLanguageDialog(BuildContext context, SettingsProvider settings,
       Map<String, String> translations) {
     showDialog(
       context: context,

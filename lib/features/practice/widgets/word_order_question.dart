@@ -5,7 +5,7 @@ class WordOrderQuestion extends StatefulWidget {
   final List<String> words;
   final String correctOrder;
   final Function(bool isCorrect, String answer) onSubmit;
-  final AppSettings settings;
+  final SettingsProvider settings;
 
   const WordOrderQuestion({
     Key? key,
@@ -171,7 +171,7 @@ class _WordOrderQuestionState extends State<WordOrderQuestion> {
                 backgroundColor: Colors.blue,
               ),
               child: Text(
-                AppSettings.translations[widget.settings.language]
+                SettingsProvider.translations[widget.settings.language]
                         ?['confirm'] ??
                     'አረጋግጥ',
                 style: TextStyle(

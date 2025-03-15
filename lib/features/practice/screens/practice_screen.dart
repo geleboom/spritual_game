@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:spiritual_game/features/practice/utils/practice_feedback_handler.dart';
 import '../../verses/models/verse.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../practice/screens/practice_success_screen.dart';
 import '../controllers/practice_controller.dart';
+import '../utils/question_generator.dart';
 
 class PracticeScreen extends StatefulWidget {
   final Verse verse;
+  final String practiceMode;
 
-  const PracticeScreen({Key? key, required this.verse}) : super(key: key);
+  const PracticeScreen({
+    Key? key,
+    required this.verse,
+    required this.practiceMode,
+  }) : super(key: key);
 
   @override
   State<PracticeScreen> createState() => _PracticeScreenState();
@@ -28,50 +35,71 @@ class _PracticeScreenState extends State<PracticeScreen> {
   }
 
   Future<void> _initController() async {
-    _controller = await PracticeController.initialize(widget.verse);
-    _generateQuestions();
-    setState(() {
-      _isLoading = false;
-    });
+    try {
+      _controller = await PracticeController.initialize(
+        widget.verse,
+        isTestMode: widget.practiceMode == 'test',
+      );
+      
+      if (!mounted) return;
+      
+      _generateQuestions();
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error initializing practice: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        Navigator.of(context).pop();
+      }
+    }
   }
 
-  void _generateQuestions() {
-    final settings = Provider.of<AppSettings>(context, listen: false);
-    final verseText = settings.getVerseText(widget.verse.id);
-    final verseReference = settings.getVerseReference(widget.verse.id);
-    final words = verseText.split(' ');
+  Future<void> _generateQuestions() async {
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final verseText = settings.language == 'am' 
+        ? widget.verse.verseText 
+        : widget.verse.translation;
+    final verseReference = settings.language == 'am'
+        ? widget.verse.reference
+        : widget.verse.referenceTranslation;
 
-    _questions = [
-      Question(
-        text: settings.language == 'am'
-            ? 'የትኛው የመጽሐፍ ቅዱስ ጥቅስ ነው?'
-            : 'Which Bible verse is this?',
-        type: QuestionType.multipleChoice,
-        options: [
-          verseReference,
-          'ዮሐንስ 1:1',
-          'ማቴዎስ 5:16',
-          'መዝሙር 119:105',
-        ],
-        correctAnswer: verseReference,
-      ),
-      Question(
-        text: settings.language == 'am'
-            ? 'ባዶውን ቦታ ሙሉ:\n${verseText.replaceAll(words[2], '_____')}'
-            : 'Fill in the blank:\n${verseText.replaceAll(words[2], '_____')}',
-        type: QuestionType.fillInBlank,
-        options: [words[2], words[4], words[1], words[3]],
-        correctAnswer: words[2],
-      ),
-      Question(
-        text: settings.language == 'am'
-            ? 'ቃላቱን በትክክለኛው ቅደም ተከተል ያስቀምጡ:'
-            : 'Put the words in the correct order:',
-        type: QuestionType.wordOrder,
-        options: List<String>.from(words.sublist(0, 4))..shuffle(),
-        correctAnswer: words.sublist(0, 4).join(' '),
-      ),
-    ];
+    if (widget.practiceMode == 'test') {
+      _questions = QuestionGenerator.generateTestQuestions(verseText, verseReference, settings.language)
+          .map((testQ) => Question(
+                text: testQ.question,
+                type: QuestionType.multipleChoice,
+                options: testQ.options,
+                correctAnswer: testQ.options[testQ.correctAnswerIndex],
+              ))
+          .toList();
+    } else {
+      switch (widget.practiceMode) {
+        case 'read':
+          _questions = [await QuestionGenerator.generateWordOrderQuestion(verseText, settings.language)];
+          break;
+        case 'blank':
+          final blankQuestion = await QuestionGenerator.generateBlankQuestion(verseText, settings.language);
+          _questions = [Question(
+            text: blankQuestion.text,
+            type: QuestionType.fillInBlank,
+            options: blankQuestion.options,
+            correctAnswer: blankQuestion.correctAnswer,
+          )];
+          break;
+        case 'type':
+          _questions = [QuestionGenerator.generateTypingQuestion(verseText, settings.language)];
+          break;
+        default:
+          _questions = [await QuestionGenerator.generateWordOrderQuestion(verseText, settings.language)];
+      }
+    }
   }
 
   void _checkAnswer(String answer) async {
@@ -90,16 +118,30 @@ class _PracticeScreenState extends State<PracticeScreen> {
       currentQuestion.correctAnswer,
     );
 
-    setState(() {
-      if (_currentQuestionIndex < _questions.length - 1) {
-        _currentQuestionIndex++;
-        if (_questions[_currentQuestionIndex].type == QuestionType.wordOrder) {
-          _selectedWords = [];
+    if (!mounted) return;
+
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    
+    PracticeFeedbackHandler.showAnswerFeedback(
+      context: context,
+      isCorrect: isCorrect,
+      correctAnswer: currentQuestion.correctAnswer,
+      settings: settings,
+      onFeedbackClosed: () {
+        if (mounted) {
+          setState(() {
+            if (_currentQuestionIndex < _questions.length - 1) {
+              _currentQuestionIndex++;
+              if (_questions[_currentQuestionIndex].type == QuestionType.wordOrder) {
+                _selectedWords = [];
+              }
+            } else {
+              _showResults();
+            }
+          });
         }
-      } else {
-        _showResults();
-      }
-    });
+      },
+    );
   }
 
   void _submitWordOrder() async {
@@ -112,28 +154,45 @@ class _PracticeScreenState extends State<PracticeScreen> {
       words,
     );
 
-    // Save progress and navigate to success screen
-    if (mounted) {
-      await _controller.saveProgress();
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PracticeSuccessScreen(
-            verse: widget.verse,
-            answers: _controller.answers,
-            userAnswers: _controller.userAnswers,
-            questions: _questions,
-          ),
-        ),
-      );
-    }
-  }
-
-  Future<void> _showResults() async {
     if (!mounted) return;
 
-    await _controller.saveProgress();
-    Navigator.pushReplacement(
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    
+    PracticeFeedbackHandler.showWordOrderFeedback(
+      context: context,
+      isCorrect: isCorrect,
+      settings: settings,
+      onFeedbackClosed: () {
+        if (mounted) {
+          if (_currentQuestionIndex < _questions.length - 1) {
+            setState(() {
+              _currentQuestionIndex++;
+              _selectedWords = [];
+            });
+          } else {
+            _showLoadingAndNavigate();
+          }
+        }
+      },
+    );
+  }
+
+  Future<void> _showLoadingAndNavigate() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+    
+    final shouldRefresh = await _controller.saveProgress();
+    
+    if (!mounted) return;
+    
+    Navigator.of(context).pop();
+
+    await Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (context) => PracticeSuccessScreen(
@@ -141,107 +200,219 @@ class _PracticeScreenState extends State<PracticeScreen> {
           answers: _controller.answers,
           userAnswers: _controller.userAnswers,
           questions: _questions,
+          isTestMode: widget.practiceMode == 'test',
+          shouldRefresh: shouldRefresh,
         ),
       ),
     );
+  }
+
+  Future<void> _showResults() async {
+    if (!mounted) return;
+
+    final shouldRefresh = await _controller.saveProgress();
+    
+    await Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PracticeSuccessScreen(
+          verse: widget.verse,
+          answers: _controller.answers,
+          userAnswers: _controller.userAnswers,
+          questions: _questions,
+          isTestMode: widget.practiceMode == 'test',
+          shouldRefresh: shouldRefresh,
+        ),
+      ),
+    );
+
+    if (shouldRefresh && mounted) {
+      Navigator.pop(context, true);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    return Consumer<SettingsProvider>(
+      builder: (context, settings, child) {
+        final translations = SettingsProvider.translations[settings.language] ??
+            SettingsProvider.translations['am']!;
 
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(translations['practice'] ?? 'ልምምድ'),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: settings.isDarkMode
-                  ? [Colors.black87, Colors.black]
-                  : [Colors.blue.shade50, Colors.white],
-            ),
-          ),
-          child: const Center(
-            child: CircularProgressIndicator(),
-          ),
-        ),
-      );
-    }
-
-    final currentQuestion = _questions[_currentQuestionIndex];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(translations['practice'] ?? 'ልምምድ'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: settings.isDarkMode
-                ? [Colors.black87, Colors.black]
-                : [Colors.blue.shade50, Colors.white],
-          ),
-        ),
-        child: Column(
-          children: [
-            LinearProgressIndicator(
-              value: (_currentQuestionIndex + 1) / _questions.length,
-              backgroundColor:
-                  settings.isDarkMode ? Colors.grey[800] : Colors.grey[200],
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      settings.language == 'am'
-                          ? 'ጥያቄ ${_currentQuestionIndex + 1}/${_questions.length}'
-                          : 'Question ${_currentQuestionIndex + 1}/${_questions.length}',
-                      style: TextStyle(
-                        color: Colors.blue,
-                        fontSize: settings.fontSize,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      currentQuestion.text,
-                      style: TextStyle(
-                        fontSize: settings.fontSize + 2,
-                        height: 1.5,
-                        color:
-                            settings.isDarkMode ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    _buildQuestionOptions(currentQuestion, settings),
-                  ],
+        if (_isLoading) {
+          return Scaffold(
+            backgroundColor: settings.isDarkMode ? Colors.black : Colors.white,
+            appBar: AppBar(
+              leading: IconButton(
+                icon: Icon(
+                  Icons.arrow_back,
+                  color: settings.isDarkMode ? Colors.white : Colors.black,
+                ),
+                onPressed: () => Navigator.popUntil(
+                  context,
+                  (route) => route.settings.name == 'practice_style_screen' || route.isFirst,
                 ),
               ),
+              title: Text(
+                translations['practice'] ?? 'ልምምድ',
+                style: TextStyle(
+                  color: settings.isDarkMode ? Colors.white : Colors.black,
+                  fontSize: settings.fontSize,
+                ),
+              ),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
             ),
-          ],
-        ),
-      ),
+            body: const Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final currentQuestion = _questions[_currentQuestionIndex];
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(translations['practice'] ?? 'ልምምድ'),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+          ),
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: settings.isDarkMode
+                    ? [Colors.black87, Colors.black]
+                    : [Colors.blue.shade50, Colors.white],
+              ),
+            ),
+            child: Column(
+              children: [
+                LinearProgressIndicator(
+                  value: (_currentQuestionIndex + 1) / _questions.length,
+                  backgroundColor:
+                      settings.isDarkMode ? Colors.grey[800] : Colors.grey[200],
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    settings.isDarkMode ? Colors.white : Colors.blue,
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          settings.language == 'am'
+                              ? 'ጥያቄ ${_currentQuestionIndex + 1}/${_questions.length}'
+                              : 'Question ${_currentQuestionIndex + 1}/${_questions.length}',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontSize: settings.fontSize,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          currentQuestion.text,
+                          style: TextStyle(
+                            fontSize: settings.fontSize + 2,
+                            height: 1.5,
+                            color: settings.isDarkMode
+                                ? Colors.white
+                                : Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        _buildQuestionOptions(currentQuestion, settings),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildQuestionOptions(Question currentQuestion, AppSettings settings) {
+  Widget _buildQuestionOptions(Question currentQuestion, SettingsProvider settings) {
     if (currentQuestion.type == QuestionType.wordOrder) {
-      return _buildWordOrderOptions(currentQuestion, settings);
+      return Expanded(
+        child: Column(
+          children: [
+            // Selected words
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _selectedWords.asMap().entries.map((entry) {
+                return Chip(
+                  label: Text(
+                    entry.value,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: settings.fontSize,
+                    ),
+                  ),
+                  backgroundColor: Colors.blue,
+                  onDeleted: () {
+                    setState(() {
+                      _selectedWords.removeAt(entry.key);
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            // Available words
+            Expanded(
+              child: GridView.count(
+                crossAxisCount: 3,
+                childAspectRatio: 2.5,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                children: currentQuestion.options
+                    .where((word) => !_selectedWords.contains(word))
+                    .map((word) {
+                  return ElevatedButton(
+                    onPressed: () => _checkAnswer(word),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(
+                      word,
+                      style: TextStyle(fontSize: settings.fontSize),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            if (_selectedWords.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                child: ElevatedButton(
+                  onPressed: _submitWordOrder,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                  child: Text(
+                    settings.language == 'am' ? 'አስገባ' : 'Submit',
+                    style: TextStyle(fontSize: settings.fontSize),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
     } else {
       return Expanded(
         child: ListView.builder(
@@ -262,11 +433,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 onPressed: () => _checkAnswer(currentQuestion.options[index]),
                 child: Text(
                   currentQuestion.options[index],
-                  style: TextStyle(
-                    fontSize: settings.fontSize,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: TextStyle(fontSize: settings.fontSize),
+                  textAlign: TextAlign.center,
                 ),
               ),
             );
@@ -274,128 +442,6 @@ class _PracticeScreenState extends State<PracticeScreen> {
         ),
       );
     }
-  }
-
-  Widget _buildWordOrderOptions(
-      Question currentQuestion, AppSettings settings) {
-    return Expanded(
-      child: Column(
-        children: [
-          // Selected words area
-          if (_selectedWords.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color:
-                    settings.isDarkMode ? Colors.grey[900] : Colors.grey[100],
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _selectedWords.asMap().entries.map((entry) {
-                  return Chip(
-                    label: Text(
-                      entry.value,
-                      style: TextStyle(fontSize: settings.fontSize),
-                    ),
-                    onDeleted: () => _removeWord(entry.key),
-                    backgroundColor: Colors.blue.withOpacity(0.2),
-                  );
-                }).toList(),
-              ),
-            ),
-          const SizedBox(height: 24),
-
-          // Available words area
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: settings.isDarkMode ? Colors.grey[900] : Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: currentQuestion.options
-                  .where((word) => !_selectedWords.contains(word))
-                  .map((word) {
-                return ActionChip(
-                  label: Text(
-                    word,
-                    style: TextStyle(
-                      fontSize: settings.fontSize,
-                      color:
-                          settings.isDarkMode ? Colors.white : Colors.black87,
-                    ),
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _selectedWords.add(word);
-                    });
-                  },
-                  backgroundColor:
-                      settings.isDarkMode ? Colors.grey[800] : Colors.white,
-                );
-              }).toList(),
-            ),
-          ),
-          const Spacer(),
-
-          // Confirm button area
-          if (_selectedWords.isNotEmpty) ...[
-            Text(
-              settings.language == 'am'
-                  ? 'ሁሉንም ቃላት ይምረጡ እና ያረጋግጡ'
-                  : 'Select all words and confirm',
-              style: TextStyle(
-                fontSize: settings.fontSize,
-                color: settings.isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed:
-                    _selectedWords.length == currentQuestion.options.length
-                        ? () {
-                            // Show loading indicator while processing
-                            showDialog(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (context) => const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                            );
-                            // Submit answer and navigate
-                            _submitWordOrder();
-                          }
-                        : null,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  backgroundColor: Colors.blue,
-                  disabledBackgroundColor: Colors.grey,
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  AppSettings.translations[settings.language]?['confirm'] ??
-                      'አረጋግጥ',
-                  style: TextStyle(
-                    fontSize: settings.fontSize + 2,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 
   void _removeWord(int index) {
@@ -409,6 +455,7 @@ enum QuestionType {
   multipleChoice,
   fillInBlank,
   wordOrder,
+  typing,  // Add this new type
 }
 
 class Question {
@@ -424,3 +471,4 @@ class Question {
     required this.correctAnswer,
   });
 }
+

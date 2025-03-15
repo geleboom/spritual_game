@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/verse_category.dart';
+import '../models/verse.dart';
 import '../services/dashboard_service.dart';
 import '../data/verses_data.dart';
+import '../services/custom_verse_service.dart';
 import '../../settings/providers/settings_provider.dart';
+import '../widgets/verse_search_delegate.dart';
+import 'add_verse_screen.dart';
 
 class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
@@ -17,11 +21,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
   late DashboardService _dashboardService;
   final Map<int, bool> _verseInDashboard = {};
   int _selectedCategoryIndex = 0;
+  List<Verse> _customVerses = [];
 
   @override
   void initState() {
     super.initState();
     _initDashboardService();
+    _loadCustomVerses();
+  }
+
+  Future<void> _loadCustomVerses() async {
+    final customVerses = await CustomVerseService.getCustomVerses();
+    if (mounted) {
+      setState(() {
+        _customVerses = customVerses;
+      });
+    }
   }
 
   Future<void> _initDashboardService() async {
@@ -33,26 +48,49 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _loadDashboardStatus() async {
     if (!mounted) return;
 
-    final currentCategory = VerseCategory.categories[_selectedCategoryIndex];
-    setState(() {
-      _verseInDashboard.clear(); // Clear previous status
-    });
-
-    for (var verseId in currentCategory.verseIds) {
-      if (!mounted) return;
-      final isInDashboard = await _dashboardService.isInDashboard(verseId);
+    try {
+      final currentCategory = VerseCategory.categories[_selectedCategoryIndex];
       setState(() {
-        _verseInDashboard[verseId] = isInDashboard;
+        _verseInDashboard.clear(); // Clear previous status
       });
+
+      // Load status for predefined verses
+      for (var verseId in currentCategory.verseIds) {
+        if (!mounted) return;
+        final isInDashboard = await _dashboardService.isInDashboard(verseId);
+        setState(() {
+          _verseInDashboard[verseId] = isInDashboard;
+        });
+      }
+
+      // Load status for custom verses
+      for (var verse in _customVerses) {
+        if (!mounted) return;
+        final isInDashboard = await _dashboardService.isInDashboard(verse.id);
+        setState(() {
+          _verseInDashboard[verse.id] = isInDashboard;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading dashboard: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _toggleDashboard(int verseId) async {
     try {
       final isInDashboard = _verseInDashboard[verseId] ?? false;
-      final settings = Provider.of<AppSettings>(context, listen: false);
-      final translations = AppSettings.translations[settings.language] ??
-          AppSettings.translations['am']!;
+      final settingsProvider =
+          Provider.of<SettingsProvider>(context, listen: false);
+      final translations =
+          SettingsProvider.translations[settingsProvider.language] ??
+              SettingsProvider.translations['am']!;
 
       if (isInDashboard) {
         final success = await _dashboardService.removeFromDashboard(verseId);
@@ -106,7 +144,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
           SnackBar(
             content: Text('Error: ${e.toString()}'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -122,9 +159,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    final settings = Provider.of<SettingsProvider>(context);
+    final translations = SettingsProvider.translations[settings.language] ??
+        SettingsProvider.translations['am']!;
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -136,8 +173,35 @@ class _ExploreScreenState extends State<ExploreScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () {
-              // Implement search functionality
+            onPressed: () async {
+              await showSearch(
+                context: context,
+                delegate: VerseSearchDelegate(
+                  settingsProvider: settings,
+                  onVerseSelected: (verseId) async {
+                    final isInDashboard =
+                        await _dashboardService.isInDashboard(verseId);
+                    if (mounted) {
+                      setState(() {
+                        _verseInDashboard[verseId] = isInDashboard;
+                      });
+                    }
+
+                    // Find the category containing this verse
+                    for (var i = 0; i < VerseCategory.categories.length; i++) {
+                      if (VerseCategory.categories[i].verseIds
+                          .contains(verseId)) {
+                        if (mounted) {
+                          setState(() {
+                            _selectedCategoryIndex = i;
+                          });
+                        }
+                        break;
+                      }
+                    }
+                  },
+                ),
+              );
             },
           ),
         ],
@@ -149,7 +213,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Text(
-                translations['topics'] ?? 'ርዕሶች',
+                translations['topics'] ??
+                    (settings.language == 'en' ? 'Topics' : 'ርዕሶች'),
                 style: (theme.textTheme.titleLarge ??
                         const TextStyle(fontSize: 24))
                     .copyWith(color: Colors.white, fontWeight: FontWeight.bold),
@@ -254,12 +319,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
               physics: const NeverScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: VerseCategory
-                  .categories[_selectedCategoryIndex].verseIds.length,
+                      .categories[_selectedCategoryIndex].verseIds.length +
+                  _customVerses.length,
               itemBuilder: (context, index) {
-                final verseId = VerseCategory
-                    .categories[_selectedCategoryIndex].verseIds[index];
+                final currentCategory =
+                    VerseCategory.categories[_selectedCategoryIndex];
+                final isCustomVerse = index >= currentCategory.verseIds.length;
+                final verseId = isCustomVerse
+                    ? _customVerses[index - currentCategory.verseIds.length].id
+                    : currentCategory.verseIds[index];
                 final isInDashboard = _verseInDashboard[verseId] ?? false;
-                final verse = versesData[verseId]!;
+                final verse = isCustomVerse
+                    ? _customVerses[index - currentCategory.verseIds.length]
+                    : versesData[verseId];
+
+                if (verse == null) {
+                  return const SizedBox
+                      .shrink(); // Skip verses that don't exist
+                }
 
                 return Card(
                   color: theme.cardColor,
@@ -312,6 +389,19 @@ class _ExploreScreenState extends State<ExploreScreen> {
             ),
           ],
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AddVerseScreen(),
+            ),
+          );
+          // Reload custom verses after adding a new one
+          _loadCustomVerses();
+        },
+        child: const Icon(Icons.add),
       ),
     );
   }

@@ -9,6 +9,8 @@ class PracticeSuccessScreen extends StatelessWidget {
   final List<bool> answers;
   final List<String> userAnswers;
   final List<Question> questions;
+  final bool isTestMode;
+  final bool shouldRefresh;
 
   const PracticeSuccessScreen({
     Key? key,
@@ -16,267 +18,109 @@ class PracticeSuccessScreen extends StatelessWidget {
     required this.answers,
     required this.userAnswers,
     required this.questions,
+    this.isTestMode = false,
+    this.shouldRefresh = false,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
-    final score = answers.where((answer) => answer).length;
-    final percentage = (score / answers.length * 100).round();
+    return WillPopScope(
+      onWillPop: () async {
+        Navigator.of(context).pop(shouldRefresh);
+        return false;
+      },
+      child: Consumer<SettingsProvider>(
+        builder: (context, settings, child) {
+          final translations = SettingsProvider.translations[settings.language] ??
+              SettingsProvider.translations['am']!;
+          final score = answers.where((answer) => answer).length;
+          final percentage = (score / answers.length * 100).round();
+          final isPassed = percentage >= 80;
 
-    return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: settings.isDarkMode
-                ? [Colors.black87, Colors.black]
-                : [Colors.blue.shade50, Colors.white],
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Success icon
-                Icon(
-                  percentage >= 80 ? Icons.stars : Icons.star_half,
-                  size: 80,
-                  color: percentage >= 80 ? Colors.amber : Colors.blue,
-                ),
-                const SizedBox(height: 24),
-
-                // Congratulations text
-                Text(
-                  percentage >= 80
-                      ? translations['congratulations']!
-                      : translations['goodTry']!,
-                  style: TextStyle(
-                    fontSize: settings.fontSize + 8,
-                    fontWeight: FontWeight.bold,
-                    color: settings.isDarkMode ? Colors.white : Colors.black87,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-
-                // Score text
-                Text(
-                  translations['correctAnswers']!
-                      .replaceAll('{total}', answers.length.toString())
-                      .replaceAll('{correct}', score.toString()),
-                  style: TextStyle(
-                    fontSize: settings.fontSize,
-                    color:
-                        settings.isDarkMode ? Colors.white70 : Colors.black54,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-
-                // Progress bar
-                Container(
-                  height: 8,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    color: settings.isDarkMode
-                        ? Colors.grey[800]
-                        : Colors.grey[200],
-                  ),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: score / answers.length,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(4),
-                        gradient: LinearGradient(
-                          colors: percentage >= 80
-                              ? [Colors.amber, Colors.orange]
-                              : [Colors.blue, Colors.blue.shade700],
-                        ),
+          return Scaffold(
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      isPassed ? Icons.star : Icons.star_border,
+                      size: 64,
+                      color: isPassed ? Colors.amber : Colors.grey,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      isTestMode
+                          ? (isPassed
+                              ? (settings.language == 'am'
+                                  ? 'ፈተናውን በተሳካ ሁኔታ አልፈዋል!'
+                                  : 'Test Passed Successfully!')
+                              : (settings.language == 'am'
+                                  ? 'እባክዎ እንደገና ይሞክሩ'
+                                  : 'Please Try Again'))
+                          : (settings.language == 'am'
+                              ? 'ልምምዱን አጠናቀዋል!'
+                              : 'Practice Complete!'),
+                      style: TextStyle(
+                        fontSize: settings.fontSize + 4,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 48),
-
-                // Action buttons
-                Column(
-                  children: [
+                    const SizedBox(height: 32),
+                    Text(
+                      '${translations['score']}: $percentage%',
+                      style: TextStyle(
+                        fontSize: settings.fontSize + 2,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (isTestMode && isPassed) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        settings.language == 'am'
+                            ? 'እንኳን ደስ አለዎት! XP አግኝተዋል!'
+                            : 'Congratulations! You earned XP!',
+                        style: TextStyle(
+                          fontSize: settings.fontSize,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 32),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  PracticeScreen(verse: verse),
-                            ),
-                          );
+                          // Pop back to practice mode selection
+                          Navigator.of(context).pop(shouldRefresh);
+                          Navigator.of(context).pop(); // Pop one more time to return to practice mode selection
                         },
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.symmetric(vertical: 20),
                           backgroundColor: Colors.blue,
-                        ),
-                        child: Text(
-                          translations['tryAgain']!,
-                          style: TextStyle(fontSize: settings.fontSize),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: () {
-                          _showDetailedResults(context, settings, translations);
-                        },
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.all(16),
-                          side: BorderSide(
-                            color: settings.isDarkMode
-                                ? Colors.white
-                                : Colors.blue,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: Text(
-                          translations['detailed_results']!,
-                          style: TextStyle(
-                            fontSize: settings.fontSize,
-                            color: settings.isDarkMode
-                                ? Colors.white
-                                : Colors.blue,
+                          settings.language == 'am' ? 'ተመለስ' : 'Back to Practice',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            color: Colors.white,
                           ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      child: Text(
-                        translations['finish']!,
-                        style: TextStyle(
-                          fontSize: settings.fontSize,
-                          color: settings.isDarkMode
-                              ? Colors.white70
-                              : Colors.black54,
                         ),
                       ),
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showDetailedResults(BuildContext context, AppSettings settings,
-      Map<String, String> translations) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: settings.isDarkMode ? Colors.black87 : Colors.white,
-        title: Text(
-          translations['detailed_results']!,
-          style: TextStyle(
-            color: settings.isDarkMode ? Colors.white : Colors.black87,
-            fontSize: settings.fontSize + 4,
-          ),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: List.generate(questions.length, (index) {
-              final question = questions[index];
-              final isCorrect = answers[index];
-              final userAnswer = userAnswers[index];
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${translations['question']} ${index + 1}:',
-                      style: TextStyle(
-                        color: settings.isDarkMode
-                            ? Colors.white70
-                            : Colors.black54,
-                        fontSize: settings.fontSize - 2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      question.text,
-                      style: TextStyle(
-                        color:
-                            settings.isDarkMode ? Colors.white : Colors.black87,
-                        fontSize: settings.fontSize - 1,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          isCorrect ? Icons.check_circle : Icons.cancel,
-                          color: isCorrect ? Colors.green : Colors.red,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${translations['your_answer']}: $userAnswer',
-                                style: TextStyle(
-                                  color: settings.isDarkMode
-                                      ? Colors.white70
-                                      : Colors.black54,
-                                  fontSize: settings.fontSize - 2,
-                                ),
-                              ),
-                              if (!isCorrect)
-                                Text(
-                                  '${translations['correct_answer']}: ${question.correctAnswer}',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontSize: settings.fontSize - 2,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              translations['finish']!,
-              style: TextStyle(fontSize: settings.fontSize),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 }
+
+

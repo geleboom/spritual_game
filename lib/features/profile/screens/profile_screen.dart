@@ -6,6 +6,7 @@ import '../models/user_profile.dart';
 import '../../progress/services/progress_service.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../verses/services/dashboard_service.dart';
+import '../../verses/models/verse.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -20,14 +21,14 @@ class _ProfileScreenState extends State<ProfileScreen>
   late DashboardService _dashboardService;
   bool _isLoading = true;
   int _completedVerses = 0;
-  int _totalPracticeDays = 0;
+  final int _totalPracticeDays = 0;
   double _averageScore = 0.0;
   late UserProfile _userProfile;
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   late AnimationController _levelProgressController;
   Map<int, double> _verseProgress = {};
-  List<int> _completedVerseIds = [];
+  final List<int> _completedVerseIds = [];
 
   @override
   void initState() {
@@ -48,46 +49,70 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Future<void> _loadProfile() async {
-    final prefs = await SharedPreferences.getInstance();
-    _progressService = ProgressService(prefs);
-    _dashboardService = DashboardService(prefs);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _progressService = ProgressService(prefs);
+      _dashboardService = DashboardService(prefs);
 
-    // Load user profile
-    final userProfileJson = prefs.getString('user_profile');
-    if (userProfileJson != null) {
-      _userProfile = UserProfile.fromJson(jsonDecode(userProfileJson));
-    } else {
-      _userProfile = UserProfile();
-    }
-    _nameController.text = _userProfile.name;
-    _emailController.text = _userProfile.email;
-
-    final verseIds = await _dashboardService.getDashboardVerses();
-    int completed = 0;
-    double totalScore = 0.0;
-    Map<int, double> progress = {};
-    List<int> completedIds = [];
-
-    for (var id in verseIds) {
-      final verseProgress = await _progressService.getVerseProgress(id);
-      progress[id] = verseProgress;
-      if (verseProgress >= 0.8) {
-        completed++;
-        completedIds.add(id);
+      // Load user profile
+      final userProfileJson = prefs.getString('user_profile');
+      if (userProfileJson != null) {
+        _userProfile = UserProfile.fromJson(jsonDecode(userProfileJson));
+        _completedVerses = _userProfile.completedVerses.length;
       }
-      totalScore += verseProgress;
-    }
 
-    final practiceDays = await _progressService.getPracticeDays();
+      final verses = await _dashboardService.getDashboardVerses();
+      print('Loaded ${verses.length} verses');
 
-    if (mounted) {
+      // Calculate average score from verse progress
+      double totalScore = 0.0;
+      Map<int, double> progress = {};
+
+      for (var verse in verses) {
+        try {
+          // Get progress for each mode
+          final readProgress =
+              await _progressService.getVerseProgress(verse.id, mode: 'read') ??
+                  0.0;
+          final blankProgress = await _progressService
+                  .getVerseProgress(verse.id, mode: 'blank') ??
+              0.0;
+          final typeProgress =
+              await _progressService.getVerseProgress(verse.id, mode: 'type') ??
+                  0.0;
+
+          // Calculate average progress for the verse
+          final verseProgress =
+              ((readProgress + blankProgress + typeProgress) / 3)
+                  .clamp(0.0, 100.0);
+          progress[verse.id] = verseProgress;
+          totalScore += verseProgress;
+
+          print('Verse ${verse.id} progress:');
+          print('- Read: $readProgress');
+          print('- Blank: $blankProgress');
+          print('- Type: $typeProgress');
+          print('- Average: $verseProgress');
+        } catch (e) {
+          print('Error calculating progress for verse ${verse.id}: $e');
+          continue;
+        }
+      }
+
+      // Calculate average score
+      if (verses.isNotEmpty) {
+        _averageScore = (totalScore / verses.length).clamp(0.0, 100.0);
+      }
+
+      if (!mounted) return;
       setState(() {
-        _completedVerses = completed;
-        _totalPracticeDays = practiceDays;
-        _averageScore =
-            verseIds.isNotEmpty ? (totalScore / verseIds.length) * 100 : 0.0;
+        _isLoading = false;
         _verseProgress = progress;
-        _completedVerseIds = completedIds;
+      });
+    } catch (e) {
+      print('Error loading profile: $e');
+      if (!mounted) return;
+      setState(() {
         _isLoading = false;
       });
     }
@@ -101,9 +126,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   void _showEditDialog(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context, listen: false);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    final settings = Provider.of<SettingsProvider>(context, listen: false);
+    final translations = SettingsProvider.translations[settings.language] ??
+        SettingsProvider.translations['am']!;
 
     showDialog(
       context: context,
@@ -191,7 +216,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildStatItem(String label, String value, {IconData? icon}) {
-    final settings = Provider.of<AppSettings>(context);
+    final settings = Provider.of<SettingsProvider>(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
@@ -223,9 +248,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildLevelIndicator() {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    final settings = Provider.of<SettingsProvider>(context);
+    final translations = SettingsProvider.translations[settings.language] ??
+        SettingsProvider.translations['am']!;
 
     final progress = _userProfile.getLevelProgress();
     _levelProgressController.value = progress;
@@ -371,7 +396,7 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildProfileHeader() {
-    final settings = Provider.of<AppSettings>(context);
+    final settings = Provider.of<SettingsProvider>(context);
     return Stack(
       children: [
         Container(
@@ -396,10 +421,15 @@ class _ProfileScreenState extends State<ProfileScreen>
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 40,
-                    backgroundColor: Colors.blue,
-                    child: Icon(Icons.person, size: 40, color: Colors.white),
+                    backgroundColor: Colors.transparent, // Changed from blue
+                    child: Image.asset(
+                      'assets/icons/playstore.png', // Changed from Icon(Icons.person)
+                      width: 80,
+                      height: 80,
+                      fit: BoxFit.contain,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -432,26 +462,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildCompletedVerses() {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
-
-    if (_completedVerseIds.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Center(
-            child: Text(
-              translations['no_completed_verses'] ?? 'No verses completed yet',
-              style: TextStyle(
-                fontSize: settings.fontSize,
-                color: settings.isDarkMode ? Colors.white70 : Colors.black54,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
+    final settings = Provider.of<SettingsProvider>(context);
+    final translations = SettingsProvider.translations[settings.language] ??
+        SettingsProvider.translations['am']!;
 
     return Card(
       child: Padding(
@@ -460,7 +473,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              translations['mastered_verses'] ?? 'Mastered Verses',
+              translations['completed_verses'] ?? 'Completed Verses',
               style: TextStyle(
                 fontSize: settings.fontSize + 2,
                 fontWeight: FontWeight.bold,
@@ -468,55 +481,24 @@ class _ProfileScreenState extends State<ProfileScreen>
               ),
             ),
             const SizedBox(height: 16),
-            ...List.generate(_completedVerseIds.length, (index) {
-              final verseId = _completedVerseIds[index];
-              final progress = _verseProgress[verseId] ?? 0.0;
-              final reference = settings.getVerseReference(verseId);
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          reference,
-                          style: TextStyle(
-                            fontSize: settings.fontSize,
-                            color: settings.isDarkMode
-                                ? Colors.white
-                                : Colors.black87,
-                          ),
-                        ),
-                        Text(
-                          '${(progress * 100).toStringAsFixed(0)}%',
-                          style: TextStyle(
-                            fontSize: settings.fontSize - 2,
-                            color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        backgroundColor: settings.isDarkMode
-                            ? Colors.white10
-                            : Colors.black.withOpacity(0.05),
-                        valueColor:
-                            const AlwaysStoppedAnimation<Color>(Colors.blue),
-                        minHeight: 4,
-                      ),
-                    ),
-                  ],
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _completedVerses.toString(),
+                  style: TextStyle(
+                    fontSize: settings.fontSize + 4,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue,
+                  ),
                 ),
-              );
-            }),
+                Icon(
+                  Icons.check_circle,
+                  color: Colors.green,
+                  size: settings.fontSize + 8,
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -525,9 +507,9 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    final settings = Provider.of<SettingsProvider>(context);
+    final translations = SettingsProvider.translations[settings.language] ??
+        SettingsProvider.translations['am']!;
 
     return Scaffold(
       appBar: AppBar(

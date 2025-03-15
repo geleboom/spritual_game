@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../../../main_page.dart';
 import '../../settings/providers/settings_provider.dart';
+// import '../../../providers/app_settings.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -41,7 +42,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
+    final settings = Provider.of<SettingsProvider>(context);
     final theme = Theme.of(context);
     final isAmharic = settings.language == 'am';
 
@@ -159,10 +160,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            icon,
-            size: 100,
-            color: Colors.white,
+          Image.asset(
+            'assets/icons/playstore.png',
+            width: 100,
+            height: 100,
+            fit: BoxFit.contain,
           ),
           const SizedBox(height: 48),
           Text(
@@ -196,7 +198,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     if (!mounted) return;
 
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainPage()),
+      MaterialPageRoute(builder: (_) => MainPage()),
     );
   }
 }
+
+

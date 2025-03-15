@@ -10,15 +10,15 @@ class VerseCard extends StatelessWidget {
   const VerseCard({Key? key, required this.verse, required this.onTap})
       : super(key: key);
 
-  String _getProgressText(AppSettings settings, int progress) {
+  String _getProgressText(SettingsProvider settings, int progress) {
     final remembered =
-        AppSettings.translations[settings.language]?['remembered'] ?? 'አስታውሰዋል';
+        SettingsProvider.translations[settings.language]?['remembered'] ?? 'አስታውሰዋል';
     return '$progress% $remembered';
   }
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
+    final settings = Provider.of<SettingsProvider>(context);
     final isEnglish = settings.language == 'en';
 
     return Card(
@@ -40,7 +40,7 @@ class VerseCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                settings.getVerseReference(verse.id),
+                isEnglish ? verse.referenceTranslation : verse.reference,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -49,7 +49,7 @@ class VerseCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                settings.getVerseText(verse.id),
+                isEnglish ? verse.translation : verse.verseText,
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.9),
                   fontSize: 16,

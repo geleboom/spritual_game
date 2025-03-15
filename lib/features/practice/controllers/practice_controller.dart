@@ -3,91 +3,68 @@ import '../../../features/verses/models/verse.dart';
 import '../../../features/progress/services/progress_service.dart';
 
 class PracticeController {
+  final List<bool> answers = [];
+  final List<String> userAnswers = [];
   final Verse verse;
-  final ProgressService progressService;
-  final List<bool> answers;
-  final List<String> userAnswers;
 
-  PracticeController({
-    required this.verse,
-    required this.progressService,
-    required this.answers,
-    required this.userAnswers,
-  });
+  PracticeController({required this.verse, required bool isTestMode});
 
-  static Future<PracticeController> initialize(Verse verse) async {
-    final prefs = await SharedPreferences.getInstance();
-    final progressService = ProgressService(prefs);
-
+  static Future<PracticeController> initialize(
+    Verse verse, {
+    required bool isTestMode,
+  }) async {
     return PracticeController(
       verse: verse,
-      progressService: progressService,
-      answers: [],
-      userAnswers: [],
+      isTestMode: isTestMode,
     );
   }
 
-  // Check multiple choice or fill in blank answer
-  bool checkAnswer(String userAnswer, String correctAnswer) {
-    return userAnswer == correctAnswer;
-  }
-
-  // Check word order answer
-  bool checkWordOrder(List<String> selectedWords, List<String> correctWords) {
-    if (selectedWords.length != correctWords.length) return false;
-
-    final selectedString = selectedWords.join(' ');
-    final correctString = correctWords.join(' ');
-    return selectedString == correctString;
-  }
-
-  // Submit answer and get result
   Future<bool> submitAnswer(
-      int questionIndex, String answer, String correctAnswer) async {
-    final isCorrect = checkAnswer(answer, correctAnswer);
+    int questionIndex,
+    String userAnswer,
+    String correctAnswer,
+  ) async {
+    final isCorrect = userAnswer.trim() == correctAnswer.trim();
 
-    // Update answers list
     if (questionIndex >= answers.length) {
       answers.add(isCorrect);
-      userAnswers.add(answer);
+      userAnswers.add(userAnswer);
     } else {
       answers[questionIndex] = isCorrect;
-      userAnswers[questionIndex] = answer;
+      userAnswers[questionIndex] = userAnswer;
     }
 
     return isCorrect;
   }
 
-  // Submit word order answer
-  Future<bool> submitWordOrder(int questionIndex, List<String> selectedWords,
-      List<String> correctWords) async {
-    final isCorrect = checkWordOrder(selectedWords, correctWords);
-    final answer = selectedWords.join(' ');
+  Future<bool> submitWordOrder(
+    int questionIndex,
+    List<String> selectedWords,
+    List<String> correctWords,
+  ) async {
+    final userAnswer = selectedWords.join(' ');
+    final correctAnswer = correctWords.join(' ');
+    return submitAnswer(questionIndex, userAnswer, correctAnswer);
+  }
 
-    // Update answers list
-    if (questionIndex >= answers.length) {
-      answers.add(isCorrect);
-      userAnswers.add(answer);
-    } else {
-      answers[questionIndex] = isCorrect;
-      userAnswers[questionIndex] = answer;
+  Future<bool> saveProgress() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final progressService = ProgressService(prefs);
+
+      // Calculate the score based on correct answers
+      final score = answers.where((answer) => answer).length / answers.length;
+
+      // Update progress with the test results
+      await progressService.updateProgress(verse.id, answers);
+
+      // Update the verse's progress property
+      verse.progress = (score * 100).round();
+
+      return true;
+    } catch (e) {
+      print('Error saving progress: $e');
+      return false;
     }
-
-    return isCorrect;
-  }
-
-  // Save progress
-  Future<void> saveProgress() async {
-    await progressService.updateProgress(verse.id, answers);
-  }
-
-  // Get final score
-  int getScore() {
-    return answers.where((answer) => answer).length;
-  }
-
-  // Check if all questions are answered
-  bool isComplete() {
-    return answers.length == 3; // Since we have 3 questions
   }
 }

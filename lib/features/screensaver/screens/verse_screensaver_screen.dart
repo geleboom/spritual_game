@@ -63,9 +63,9 @@ class _VerseScreensaverScreenState extends State<VerseScreensaverScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = Provider.of<AppSettings>(context);
-    final translations = AppSettings.translations[settings.language] ??
-        AppSettings.translations['am']!;
+    final settings = Provider.of<SettingsProvider>(context);
+    final translations = SettingsProvider.translations[settings.language] ??
+        SettingsProvider.translations['am']!;
 
     return Scaffold(
       backgroundColor: Colors.black,

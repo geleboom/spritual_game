@@ -2,61 +2,84 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ProgressService {
-  static const String _progressKey = 'verse_progress';
-  static const String _practiceHistoryKey = 'practice_history';
-  static const String _practiceDaysKey = 'practice_days';
-
   final SharedPreferences _prefs;
+  static const String _progressPrefix = 'verse_progress_';
+  static const String _practiceDaysKey = 'practice_days';
+  static const String _practiceHistoryKey = 'practice_history';
 
   ProgressService(this._prefs);
 
-  // Get progress for a specific verse
-  Future<double> getVerseProgress(int verseId) async {
-    final progressMap = _getProgressMap();
-    return progressMap[verseId]?.toDouble() ?? 0.0;
-  }
-
-  // Update progress after practice session
-  Future<void> updateProgress(int verseId, List<bool> questionResults) async {
-    final progressMap = _getProgressMap();
-
-    // Calculate new progress based on recent performance
-    double currentProgress = progressMap[verseId]?.toDouble() ?? 0.0;
-    double sessionScore = questionResults.where((result) => result).length /
-        questionResults.length;
-
-    // Weight: 70% previous progress, 30% new score
-    double newProgress = (currentProgress * 0.7) + (sessionScore * 0.3);
-
-    // Update progress
-    progressMap[verseId] = newProgress;
-    await _saveProgressMap(progressMap);
-
-    // Save practice history
-    await _savePracticeHistory(verseId, questionResults);
-
-    // Update practice days
-    await _updatePracticeDays();
+  // Get progress for a specific verse and mode
+  Future<double> getVerseProgress(int verseId, {String? mode}) async {
+    try {
+      final key = mode != null
+          ? '$_progressPrefix${mode}_$verseId'
+          : '$_progressPrefix$verseId';
+      final progress = _prefs.getDouble(key);
+      return progress ?? 0.0;
+    } catch (e) {
+      print('Error in getVerseProgress: $e');
+      return 0.0;
+    }
   }
 
   // Get practice days count
   Future<int> getPracticeDays() async {
-    final practiceDays = _prefs.getStringList(_practiceDaysKey) ?? [];
-    return practiceDays.length;
+    return _prefs.getInt(_practiceDaysKey) ?? 0;
+  }
+
+  // Update progress after practice session
+  Future<void> updateProgress(int verseId, List<bool> questionResults,
+      {String? mode}) async {
+    try {
+      final key = mode != null
+          ? '$_progressPrefix${mode}_$verseId'
+          : '$_progressPrefix$verseId';
+
+      // Calculate new progress based on recent performance
+      double currentProgress = await getVerseProgress(verseId, mode: mode);
+      double sessionScore = questionResults.where((result) => result).length /
+          questionResults.length *
+          100; // Convert to percentage
+
+      // Weight: 70% previous progress, 30% new score
+      double newProgress = (currentProgress * 0.7) + (sessionScore * 0.3);
+
+      // Store progress directly as double
+      await _prefs.setDouble(key, newProgress);
+
+      print(
+          'Saved progress for verse $verseId (${mode ?? 'default'}): $newProgress%');
+
+      // Save practice history
+      await _savePracticeHistory(verseId, questionResults);
+
+      // Update practice days
+      await _updatePracticeDays();
+    } catch (e) {
+      print('Error in updateProgress: $e');
+      rethrow;
+    }
   }
 
   // Private methods
-  Map<int, double> _getProgressMap() {
-    final String? progressJson = _prefs.getString(_progressKey);
+  Map<int, double> _getProgressMap(String? mode) {
+    final key = mode != null ? '$_progressPrefix$mode' : _progressPrefix;
+    final String? progressJson = _prefs.getString(key);
     if (progressJson == null) return {};
 
     Map<String, dynamic> jsonMap = jsonDecode(progressJson);
-    return jsonMap.map((key, value) => MapEntry(int.parse(key), value));
+    return Map<int, double>.from(jsonMap
+        .map((key, value) => MapEntry(int.parse(key), value.toDouble())));
   }
 
-  Future<void> _saveProgressMap(Map<int, double> progressMap) async {
-    final String progressJson = jsonEncode(progressMap);
-    await _prefs.setString(_progressKey, progressJson);
+  Future<void> _saveProgressMap(
+      Map<int, double> progressMap, String? mode) async {
+    final key = mode != null ? '$_progressPrefix$mode' : _progressPrefix;
+    final Map<String, dynamic> jsonMap =
+        progressMap.map((key, value) => MapEntry(key.toString(), value));
+    final String progressJson = jsonEncode(jsonMap);
+    await _prefs.setString(key, progressJson);
   }
 
   Future<void> _updatePracticeDays() async {

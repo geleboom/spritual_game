@@ -1,9 +1,12 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/verse.dart';
+import '../data/verses_data.dart';
+import 'custom_verse_service.dart';
 
 class DashboardService {
+  final SharedPreferences _prefs;
   static const String _dashboardKey = 'dashboard_verses';
   static const int maxVerses = 5;
-  final SharedPreferences _prefs;
 
   DashboardService(this._prefs) {
     // Initialize with empty list if not exists
@@ -19,14 +22,34 @@ class DashboardService {
     }
   }
 
-  Future<List<int>> getDashboardVerses() async {
-    try {
-      final List<String> verses = _prefs.getStringList(_dashboardKey) ?? [];
-      return verses.map((e) => int.parse(e)).toList();
-    } catch (e) {
-      await clearDashboard();
-      return [];
+  Future<List<Verse>> getDashboardVerses() async {
+    final List<String>? verseIds = _prefs.getStringList(_dashboardKey);
+    if (verseIds == null) return [];
+
+    List<Verse> verses = [];
+
+    // Get predefined verses
+    for (var id in verseIds) {
+      final verseId = int.parse(id);
+      if (versesData.containsKey(verseId)) {
+        verses.add(versesData[verseId]!);
+      }
     }
+
+    // Get custom verses
+    final customVerses = await CustomVerseService.getCustomVerses();
+    for (var id in verseIds) {
+      final verseId = int.parse(id);
+      final customVerse = customVerses.firstWhere(
+        (verse) => verse.id == verseId,
+        orElse: () => customVerses.first, // Return first verse as fallback
+      );
+      if (customVerse.id == verseId) {
+        verses.add(customVerse);
+      }
+    }
+
+    return verses;
   }
 
   Future<bool> addToDashboard(int verseId) async {

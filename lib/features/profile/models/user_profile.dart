@@ -10,7 +10,7 @@ class UserProfile {
   double experiencePoints;
 
   UserProfile({
-    this.name = 'Student',
+    this.name = '',
     this.email = '',
     this.imageUrl = '',
     this.totalPracticeDays = 0,
@@ -29,7 +29,7 @@ class UserProfile {
         'imageUrl': imageUrl,
         'totalPracticeDays': totalPracticeDays,
         'lastPracticeDate': lastPracticeDate.toIso8601String(),
-        'completedVerses': completedVerses,
+        'completedVerses': completedVerses.map((id) => id.toString()).toList(),
         'achievements': achievements.map((a) => a.toJson()).toList(),
         'level': level,
         'experiencePoints': experiencePoints,
@@ -37,16 +37,19 @@ class UserProfile {
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
-      name: json['name'] as String? ?? 'Student',
-      email: json['email'] as String? ?? '',
+      name: json['name'] ?? '',
+      email: json['email'] ?? '',
       imageUrl: json['imageUrl'] ?? '',
       totalPracticeDays: json['totalPracticeDays'] ?? 0,
       level: json['level'] ?? 1,
-      experiencePoints: json['experiencePoints']?.toDouble() ?? 0,
+      experiencePoints: (json['experiencePoints'] ?? 0.0).toDouble(),
       lastPracticeDate: json['lastPracticeDate'] != null
           ? DateTime.parse(json['lastPracticeDate'])
           : DateTime.now(),
-      completedVerses: List<int>.from(json['completedVerses'] ?? []),
+      completedVerses: (json['completedVerses'] as List?)
+              ?.map((e) => int.parse(e.toString()))
+              .toList() ??
+          [],
       achievements: (json['achievements'] as List?)
               ?.map((a) => Achievement.fromJson(a))
               .toList() ??
@@ -56,22 +59,22 @@ class UserProfile {
 
   // Calculate required XP for next level
   double getRequiredXPForNextLevel() {
-    return 100.0 * level; // Each level requires more XP
+    return 1000.0 * level; // Adjust this formula as needed
   }
 
   // Calculate progress to next level (0.0 to 1.0)
   double getLevelProgress() {
-    final requiredXP = getRequiredXPForNextLevel();
-    return experiencePoints / requiredXP;
+    double requiredXP = getRequiredXPForNextLevel();
+    double progress = experiencePoints / requiredXP;
+    return progress.clamp(0.0, 1.0);
   }
 
   // Get level title based on current level
   String getLevelTitle() {
-    if (level <= 5) return 'Beginner';
-    if (level <= 10) return 'Intermediate';
-    if (level <= 15) return 'Advanced';
-    if (level <= 20) return 'Expert';
-    return 'Master';
+    if (level < 5) return 'beginner';
+    if (level < 10) return 'intermediate';
+    if (level < 15) return 'advanced';
+    return 'master';
   }
 }
 
